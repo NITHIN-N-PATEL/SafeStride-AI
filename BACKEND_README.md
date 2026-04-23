@@ -1,13 +1,17 @@
 #  SafeStride AI - Backend
- This backend provides real-time hazard detection, explainable AI insights, emergency SOS management, and OCR services for visually impaired users.
+
+This backend provides real-time hazard detection, explainable AI insights, emergency SOS management, and OCR services for visually impaired users.
 
 ---
 
 ##  Key Features
 
-*    Explainable Hazard Detection (XAI): Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
-*    Smart SOS Service: Manages emergency contacts, logs SOS events, and supports live GPS location tracking.
-*    OCR Service: High-accuracy text extraction from signs, books, and labels.
+*   ** Explainable Hazard Detection (XAI)**: Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
+*   ** Smart SOS Service**: 
+    *   **SMS Alerts**: Sends live location with a clickable Google Maps link to all contacts.
+    *   **Automated Voice Calls**: Initiates an automated voice call to the primary contact to ensure they are alerted.
+    *   **Live Tracking**: Supports continuous GPS updates during an active emergency.
+*   ** OCR Service**: High-accuracy text extraction from signs, books, and labels.
 
 ---
 
@@ -29,7 +33,7 @@ Create a `.env` file in the root directory (use `.env.example` as a template):
 MONGO_URI=mongodb://localhost:27017/safestride
 PORT=8000
 
-# Twilio
+# Twilio (Optional: for real SMS alerts)
 TWILIO_ACCOUNT_SID=your_sid
 TWILIO_AUTH_TOKEN=your_token
 TWILIO_PHONE_NUMBER=your_twilio_number
@@ -50,13 +54,13 @@ The server will start at `http://localhost:8000`.
 
 ---
 
-## API Endpoints (Brief)
+##  API Endpoints (Brief)
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `/detect` | POST | Send an image to detect hazards (Add `?heatmap=true` for XAI). |
 | `/ocr` | POST | Send an image to extract text. |
-| `/sos/trigger` | POST | Trigger an emergency alert. |
+| `/sos/trigger` | POST | Fire SOS — Sends real SMS + initiates Automated Voice Call. |
 | `/sos/location` | POST | Update live GPS coordinates for an active SOS. |
 | `/sos/contacts/add`| POST | Register a new emergency contact. |
 
