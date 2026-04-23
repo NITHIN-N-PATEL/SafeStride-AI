@@ -1,7 +1,4 @@
-"""
-app.py — SafeStride AI Backend v4.0
-All routes are async. MongoDB connected via lifespan.
-"""
+
 
 import io
 import numpy as np
@@ -20,7 +17,6 @@ from sos_service import (
 )
 
 
-# ── App lifespan (replaces deprecated on_event) ──────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,9 +39,6 @@ detection_service = DetectionService()
 ocr_service       = OCRService()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PYDANTIC MODELS
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class ContactPayload(BaseModel):
     user_id: str
@@ -78,9 +71,9 @@ def read_root():
     return {"status": "online", "message": "SafeStride AI Backend v4.0"}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+
 # DETECTION
-# ═══════════════════════════════════════════════════════════════════════════════
+
 
 @app.post("/detect")
 async def detect(
@@ -102,9 +95,9 @@ async def detect(
         return {"error": str(e)}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+
 # OCR
-# ═══════════════════════════════════════════════════════════════════════════════
+
 
 @app.post("/ocr")
 async def perform_ocr(
@@ -136,9 +129,9 @@ async def perform_ocr(
         return {"error": str(e), "text": ""}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+
 # SOS — CONTACTS
-# ═══════════════════════════════════════════════════════════════════════════════
+
 
 @app.post("/sos/contacts/add")
 async def sos_add_contact(payload: ContactPayload):
@@ -154,9 +147,7 @@ async def sos_get_contacts(user_id: str):
     return {"user_id": user_id, "contacts": contacts, "count": len(contacts)}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # SOS — TRIGGER & LOCATION
-# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/sos/trigger")
 async def sos_trigger(payload: SOSTriggerPayload):
