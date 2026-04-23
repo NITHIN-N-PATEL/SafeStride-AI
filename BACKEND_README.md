@@ -1,77 +1,71 @@
-# SafeStride AI Backend Guide
+# 🛡️ SafeStride AI - Backend v4.0
 
-Welcome to the SafeStride AI Backend documentation! This project follows a modular architecture to separate the API orchestration from the core AI processing engines.
-
-## 📂 Modular Architecture
-
-The backend is split into three main components:
-
-1.  **`app.py` (The Orchestrator):**
-    *   This is the **Main Entry Point**.
-    *   It handles the FastAPI server, CORS configuration, and API routing.
-    *   It manages the HTTP requests and delegates the actual processing to the specialized services.
-
-2.  **`main.py` (Detection Service):**
-    *   Encapsulates all **Object Detection** logic.
-    *   Loads the YOLOv8 model and handles coordinate calculations, distance estimation, and danger scoring.
-    *   **Tweaking Logic:** Modify `OBJECT_HEIGHTS` or `CRITICALITY` in this file to adjust how objects are detected and prioritized.
-
-3.  **`ocr_engine.py` (OCR Service):**
-    *   Handles **Optical Character Recognition** using EasyOCR.
-    *   Initialized separately to keep the heavy OCR models isolated from the detection pipeline.
+The intelligent "brain" of the SafeStride AI ecosystem. This backend provides real-time hazard detection, explainable AI insights, emergency SOS management, and OCR services for visually impaired users.
 
 ---
 
-## 🚀 Quick Start
+## Key Features
+
+*   **Explainable Hazard Detection (XAI)**: Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
+*   ** Smart SOS Service**: Manages emergency contacts, logs SOS events, and supports live GPS location tracking.
+*   ** OCR Service**: High-accuracy text extraction from signs, books, and labels.
+
+---
+
+## 🛠️ Setup Instructions
 
 ### 1. Prerequisites
-- Python 3.9 - 3.12
-- A working webcam (for testing)
+*   Python 3.10+
+*   MongoDB (Local or Atlas Cloud)
 
 ### 2. Installation
-Open your terminal in the root directory and run:
-
+Clone the repository and install the required dependencies:
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-*(Note: PyTorch will be installed automatically. For GPU acceleration, visit [pytorch.org](https://pytorch.org/) to install the CUDA version).*
+### 3. Environment Configuration
+Create a `.env` file in the root directory (use `.env.example` as a template):
+```env
+MONGO_URI=mongodb://localhost:27017/safestride
+PORT=8000
 
-### 3. Running the Server
+# Twilio
+TWILIO_ACCOUNT_SID=your_sid
+TWILIO_AUTH_TOKEN=your_token
+TWILIO_PHONE_NUMBER=your_twilio_number
+```
 
-**Always run `app.py` to start the backend:**
+### 4. AI Model Setup
+The backend uses the **YOLOv8m** model. The first time you run the app, it will automatically download `yolov8m.pt` (~50MB).
 
+---
+
+## Running the Backend
+
+Start the server using Python:
 ```bash
 python app.py
 ```
-
-The server will start at `http://0.0.0.0:8000`.
-
----
-
-## 📡 API Endpoints
-
-### 1. Object Detection (`POST /detect`)
-*Consumes a frame and returns a list of detected objects.*
-- **Input:** Multipart form data with a `file` field (JPEG/PNG).
-- **Processing (via `main.py`):** 
-  - Runs YOLOv8m Inference.
-  - Heuristic-based distance estimation.
-  - Priority alerting via "Danger Scores".
-- **Output:** JSON containing `results`, `width`, and `height`.
-
-### 2. Optical Character Recognition (`POST /ocr`)
-*Consumes an image and returns extracted text.*
-- **Input:** Multipart form data with a `file` field. Optional: `flip=true` for mirrored webcams.
-- **Processing (via `ocr_engine.py`):** 
-  - Image normalization and EXIF handling.
-  - EasyOCR text extraction.
-- **Output:** JSON containing `text` and `char_count`.
+The server will start at `http://localhost:8000`.
 
 ---
 
-## 🛠 Backend Developer Tips
-- **Performance:** If the detection is slow on your CPU, change the model in `main.py` from `yolov8m.pt` to `yolov8n.pt` (Nano).
-- **Thresholds:** Adjust `CONFIDENCE_THRESHOLD` in `main.py` to filter out low-confidence detections.
-- **Mirroring:** The backend provides a `flip` parameter for OCR, but for detection, coordinate mirroring is handled by the **Frontend** based on the user's camera type.
+##  API Endpoints (Brief)
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/detect` | POST | Send an image to detect hazards (Add `?heatmap=true` for XAI). |
+| `/ocr` | POST | Send an image to extract text. |
+| `/sos/trigger` | POST | Trigger an emergency alert. |
+| `/sos/location` | POST | Update live GPS coordinates for an active SOS. |
+| `/sos/contacts/add`| POST | Register a new emergency contact. |
+
+---
+
+## Project Structure
+*   `app.py`: FastAPI routes and server configuration.
+*   `main.py`: AI Detection Service & Explainability logic.
+*   `sos_service.py`: SOS and Contact management logic.
+*   `ocr_engine.py`: EasyOCR processing logic.
+*   `database.py`: MongoDB connection and indexing.
