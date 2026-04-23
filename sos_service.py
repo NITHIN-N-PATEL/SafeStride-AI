@@ -83,9 +83,6 @@ async def remove_contact(user_id: str, phone: str) -> dict:
     return {"status": "removed" if removed else "not_found", "phone": phone}
 
 
-# ---------------------------------------------------------------------------
-# SOS Trigger
-# ---------------------------------------------------------------------------
 
 async def send_sms(contacts: list, message: str, lat: float, lng: float):
     """Sends real SMS alerts to all contacts with a live map link."""
@@ -160,10 +157,10 @@ async def trigger_sos(
 
     print(f"[SOS] ALERT triggered for user '{user_id}' at ({lat}, {lng}).")
 
-    # 🔥 1. SEND REAL SMS to everyone
+    #  1. SEND REAL SMS to everyone
     await send_sms(contacts, message, lat, lng)
 
-    # 🔥 2. MAKE VOICE CALL to the primary contact
+    #  2. MAKE VOICE CALL to the primary contact
     primary_contact = contacts[0]
     await make_voice_call(primary_contact["phone"], user_id)
 
@@ -175,10 +172,6 @@ async def trigger_sos(
         "triggered_at": sos_log["triggered_at"].isoformat(),
     }
 
-
-# ---------------------------------------------------------------------------
-# SOS History
-# ---------------------------------------------------------------------------
 
 async def get_sos_history(user_id: str, limit: int = 10) -> list:
     """
