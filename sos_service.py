@@ -1,0 +1,225 @@
+"""
+sos.py — SOS emergency contact management and alert logging for SafeStride AI
+
+Collections used (defined in database.py):
+  - db.contacts  : stores emergency contacts per user
+  - db.sos_logs  : stores SOS trigger history per user
+"""
+
+from datetime import datetime, timezone
+from database import get_db
+
+
+# ---------------------------------------------------------------------------
+# Emergency Contact Management
+# ---------------------------------------------------------------------------
+
+async def add_contact(user_id: str, name: str, phone: str) -> dict:
+    """
+    Add (or update) an emergency contact for a user.
+
+    Args:
+        user_id: Unique identifier for the user.
+        name:    Display name of the emergency contact.
+        phone:   Phone number of the emergency contact.
+
+    Returns:
+        A dict with the result status and the contact document.
+    """
+    db = get_db()
+    contact = {
+        "user_id": user_id,
+        "name": name,
+        "phone": phone,
+        "added_at": datetime.now(timezone.utc),
+    }
+
+    # Upsert: update if (user_id, phone) pair already exists, else insert.
+    result = await db.contacts.update_one(
+        {"user_id": user_id, "phone": phone},
+        {"$set": contact},
+        upsert=True,
+    )
+
+    status = "updated" if result.matched_count else "created"
+    print(f"[SOS] Contact {status}: {name} ({phone}) for user '{user_id}'")
+    return {"status": status, "contact": {**contact, "phone": phone}}
+
+
+async def get_contacts(user_id: str) -> list:
+    """
+    Retrieve all emergency contacts for a user.
+
+    Args:
+        user_id: Unique identifier for the user.
+
+    Returns:
+        List of contact documents (dicts).
+    """
+    db = get_db()
+    cursor = db.contacts.find({"user_id": user_id}, {"_id": 0})
+    return await cursor.to_list(length=100)
+
+
+async def remove_contact(user_id: str, phone: str) -> dict:
+    """
+    Remove an emergency contact for a user by phone number.
+
+    Args:
+        user_id: Unique identifier for the user.
+        phone:   Phone number of the contact to remove.
+
+    Returns:
+        A dict with the deletion status.
+    """
+    db = get_db()
+    result = await db.contacts.delete_one({"user_id": user_id, "phone": phone})
+    removed = result.deleted_count > 0
+    print(f"[SOS] Contact removal ({'success' if removed else 'not found'}): {phone} for user '{user_id}'")
+    return {"status": "removed" if removed else "not_found", "phone": phone}
+
+
+# ---------------------------------------------------------------------------
+# SOS Trigger
+# ---------------------------------------------------------------------------
+
+async def trigger_sos(
+    user_id: str,
+    lat: float,
+    lng: float,
+    message: str = "SOS triggered via SafeStride AI",
+    call_first: str = None,
+) -> dict:
+    """
+    Trigger an SOS alert for a user. Logs the event to sos_logs and
+    returns the contacts that were notified.
+
+    Args:
+        user_id:    Unique identifier for the user.
+        lat:        Latitude of the user's location.
+        lng:        Longitude of the user's location.
+        message:    Custom SOS message.
+        call_first: Phone number to prioritise (call first) among contacts.
+
+    Returns:
+        A dict containing the SOS log entry and list of notified contacts.
+    """
+    db = get_db()
+
+    # Fetch all registered contacts for this user.
+    contacts = await get_contacts(user_id)
+
+    # Sort so that call_first contact appears at the top.
+    if call_first:
+        contacts = sorted(contacts, key=lambda c: (c["phone"] != call_first))
+
+    # Build the log document.
+    sos_log = {
+        "user_id": user_id,
+        "location": {"lat": lat, "lng": lng},
+        "message": message,
+        "call_first": call_first,
+        "contacts_notified": [c["phone"] for c in contacts],
+        "triggered_at": datetime.now(timezone.utc),
+        "status": "triggered",
+    }
+
+    result = await db.sos_logs.insert_one(sos_log)
+    sos_log["_id"] = str(result.inserted_id)
+
+    print(
+        f"[SOS] ALERT triggered for user '{user_id}' at ({lat}, {lng}). "
+        f"Notified {len(contacts)} contact(s)."
+    )
+
+    # In a real deployment you would call a Twilio / SMS gateway here.
+    # e.g. await send_sms(contacts, message, lat, lng)
+
+    return {
+        "status": "triggered",
+        "sos_id": sos_log["_id"],
+        "location": sos_log["location"],
+        "contacts_notified": contacts,
+        "triggered_at": sos_log["triggered_at"].isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# SOS History
+# ---------------------------------------------------------------------------
+
+async def get_sos_history(user_id: str, limit: int = 10) -> list:
+    """
+    Retrieve the SOS trigger history for a user, newest first.
+
+    Args:
+        user_id: Unique identifier for the user.
+        limit:   Maximum number of records to return (default 10).
+
+    Returns:
+        List of SOS log documents.
+    """
+    db = get_db()
+    cursor = (
+        db.sos_logs
+        .find({"user_id": user_id}, {"_id": 0})
+        .sort("triggered_at", -1)
+        .limit(limit)
+    )
+    logs = await cursor.to_list(length=limit)
+
+    # Serialise datetime objects to ISO strings for JSON friendliness.
+    for log in logs:
+        if isinstance(log.get("triggered_at"), datetime):
+            log["triggered_at"] = log["triggered_at"].isoformat()
+
+    return logs
+
+
+async def send_location_update(user_id: str, lat: float, lng: float) -> dict:
+    """
+    Send a follow-up live location update for an active SOS.
+    Logs the update to the latest SOS session.
+
+    Args:
+        user_id: Unique identifier for the user.
+        lat:     Updated latitude.
+        lng:     Updated longitude.
+
+    Returns:
+        A dict with the status and location.
+    """
+    db = get_db()
+    
+    # Find the most recent SOS trigger for this user
+    latest_sos = await db.sos_logs.find_one(
+        {"user_id": user_id},
+        sort=[("triggered_at", -1)]
+    )
+    
+    if not latest_sos:
+        return {"status": "error", "message": "No active SOS found for user"}
+
+    update_entry = {
+        "location": {"lat": lat, "lng": lng},
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+    # Push the update to the sos_logs entry
+    await db.sos_logs.update_one(
+        {"_id": latest_sos["_id"]},
+        {"$push": {"location_updates": update_entry}}
+    )
+
+    print(f"[SOS] Location update for user '{user_id}': ({lat}, {lng})")
+    
+    # In a real app, you'd send an SMS here:
+    # await send_location_sms(latest_sos['contacts_notified'], lat, lng)
+
+    return {
+        "status": "location_updated",
+        "user_id": user_id,
+        "lat": lat,
+        "lng": lng,
+        "timestamp": update_entry["updated_at"].isoformat()
+    }

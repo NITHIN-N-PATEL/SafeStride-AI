@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+motor
+pymongo
+python-dotenv
+twilio
+torch
+torchvision
+ultralytics
+opencv-python
+pillow
+numpy
+pydantic
+easyocr

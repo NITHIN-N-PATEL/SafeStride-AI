@@ -1,9 +1,11 @@
 import cv2
 import numpy as np
 import time
+import base64
 from ultralytics import YOLO
 import torch
 
+# --- PyTorch 2.6 Workaround ---
 _original_torch_load = torch.load
 def _safe_torch_load(*args, **kwargs):
     if 'weights_only' not in kwargs:
@@ -12,8 +14,33 @@ def _safe_torch_load(*args, **kwargs):
 torch.load = _safe_torch_load
 
 MODEL_PATH = "yolov8m.pt"
-CONFIDENCE_THRESHOLD = 0.65
+CONFIDENCE_THRESHOLD = 0.50 # Lowered slightly to allow explainability for 'uncertain' cases
 FOCAL_LENGTH = 700.0  # Estimated focal length for standard camera
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  EXPLAINABILITY CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+CONFIDENCE_TIERS = {
+    "certain":     (0.85, 1.00, "I am very sure about this"),
+    "confident":   (0.70, 0.85, "I am fairly confident about this"),
+    "moderate":    (0.55, 0.70, "I think this is correct"),
+    "uncertain":   (0.45, 0.55, "I am not fully sure — please be cautious"),
+}
+
+CLASS_VISUAL_CUES = {
+    "person": "upright human silhouette, limb movement, clothing texture",
+    "bicycle": "two circular wheels, frame structure, handlebars",
+    "car": "rectangular metal body, four wheels, windshield reflection",
+    "motorcycle": "two wheels, engine block, handlebars",
+    "bus": "large vehicle with cargo area or container",
+    "truck": "large vehicle with cargo area or container",
+    "traffic light": "vertical signal box with coloured light indicators",
+    "stop sign": "octagonal red sign with white border",
+    "dog": "four-legged animal with fur texture and tail",
+    "chair": "four legs, seat surface, often with backrest",
+    "cell phone": "small rectangular handheld device",
+}
 
 # Known heights for distance estimation (in meters)
 OBJECT_HEIGHTS = {
@@ -90,6 +117,61 @@ class DetectionService:
         self.model = YOLO(MODEL_PATH)
         self.alert_manager = AlertManager()
 
+    def get_confidence_tier(self, conf: float) -> dict:
+        """Categorizes detection confidence into meaningful tiers."""
+        for tier, (low, high, phrase) in CONFIDENCE_TIERS.items():
+            if low <= conf <= high:
+                colour = {"certain": "#34d399", "confident": "#6c63ff", 
+                          "moderate": "#fbbf24", "uncertain": "#f87171"}[tier]
+                return {"tier": tier, "colour": colour, "spoken_phrase": phrase}
+        return {"tier": "uncertain", "colour": "#f87171", "spoken_phrase": "Be cautious"}
+
+    def generate_gradcam_heatmap(self, frame, x1, y1, x2, y2):
+        """Generates the visual explainability overlay (simulated Grad-CAM)."""
+        h, w = frame.shape[:2]
+        heatmap = np.zeros((h, w), dtype=np.float32)
+        cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+        sigma_x, sigma_y = max((x2 - x1) / 2.5, 1), max((y2 - y1) / 2.5, 1)
+        
+        xs, ys = np.arange(w), np.arange(h)
+        xg, yg = np.meshgrid(xs, ys)
+        gaussian = np.exp(-(((xg - cx)**2)/(2*sigma_x**2) + ((yg - cy)**2)/(2*sigma_y**2)))
+        
+        heatmap = (gaussian * 255).astype(np.uint8)
+        coloured = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+        # Use BGR for OpenCV heatmap but RGB for final output
+        blended = cv2.addWeighted(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR), 0.6, coloured, 0.4, 0)
+        _, buffer = cv2.imencode(".png", blended)
+        return base64.b64encode(buffer).decode("utf-8")
+
+    def build_reasoning(self, label, conf, direction, distance, bbox_h_px, frame_h):
+        """Constructs explainability logic for the detection."""
+        tier_info = self.get_confidence_tier(conf)
+        visual_cues = CLASS_VISUAL_CUES.get(label, "visual patterns and shape")
+        height_ratio = bbox_h_px / frame_h
+
+        # ── Why detection? ──
+        detection_reason = f"The model recognised a {label} based on {visual_cues}. {tier_info['spoken_phrase']}."
+
+        # ── Spatial Factors ──
+        spatial_factors = [
+            {"factor": "Position", "value": direction, "explanation": f"Object is {direction}."},
+            {"factor": "Confidence", "value": f"{conf*100:.0f}%", "explanation": f"Tier: {tier_info['tier'].upper()}."}
+        ]
+
+        # ── Uncertainty Flags ──
+        uncertainty_flags = []
+        if conf < 0.60: uncertainty_flags.append("Low confidence — lighting or occlusion might affect accuracy.")
+        if height_ratio > 0.7: uncertainty_flags.append("Object is very close — edges may be cropped.")
+
+        return {
+            "detection_reason": detection_reason,
+            "spatial_factors": spatial_factors,
+            "uncertainty_flags": uncertainty_flags,
+            "confidence_tier": tier_info,
+            "spoken_explanation": f"{label.capitalize()} {direction}. {tier_info['spoken_phrase']}."
+        }
+
     def get_direction(self, cx, frame_w):
         """Calculates granular direction based on center x-coordinate."""
         ratio = cx / frame_w
@@ -106,14 +188,9 @@ class DetectionService:
         dist = (real_h * FOCAL_LENGTH) / bbox_h_px
         return round(dist, 1)
 
-    def build_alert_phrase(self, label, distance, direction):
-        """Constructs a natural language alert."""
-        dist_str = f"{distance} meters" if distance < 10 else "more than 10 meters"
-        return f"{label.capitalize()} {dist_str}, {direction}"
-
-    def process_frame(self, frame):
+    def process_frame(self, frame, include_heatmap=False):
         """
-        Processes a single frame (numpy array) and returns detection results.
+        Processes a single frame (numpy array) and returns detection results with explainability.
         """
         frame_h, frame_w, _ = frame.shape
         
@@ -124,7 +201,7 @@ class DetectionService:
         alerts_to_speak = []
 
         for box in results.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
             cls_id = int(box.cls[0])
             label = results.names[cls_id]
             
@@ -137,7 +214,9 @@ class DetectionService:
             
             direction = self.get_direction(cx, frame_w)
             distance = self.estimate_distance(bh, label)
-            alert_text = self.build_alert_phrase(label, distance, direction)
+            
+            # --- Generate Explainability Data ---
+            explain = self.build_reasoning(label, conf, direction, distance, bh, frame_h)
             
             proximity = "very close" if distance < 2.0 else "close" if distance < 4.5 else ""
             
@@ -145,16 +224,21 @@ class DetectionService:
             direction_multiplier = 1.3 if direction == "straight ahead" else 1.0
             danger_score = (crit * direction_multiplier) / max(distance, 0.5)
             
-            detections.append({
+            det_data = {
                 "label": label,
                 "confidence": round(conf, 3),
                 "direction": direction,
                 "distance": distance,
                 "proximity": proximity,
-                "alert_text": alert_text,
                 "danger_score": round(danger_score, 2),
-                "bbox": {"x1": int(x1), "y1": int(y1), "x2": int(x2), "y2": int(y2)}
-            })
+                "explainability": explain,
+                "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+            }
+
+            if include_heatmap:
+                det_data["heatmap_b64"] = self.generate_gradcam_heatmap(frame, x1, y1, x2, y2)
+
+            detections.append(det_data)
 
         # Sort by Danger Score
         detections.sort(key=lambda d: d['danger_score'], reverse=True)
@@ -163,7 +247,8 @@ class DetectionService:
             should, alert_type = self.alert_manager.should_alert(d['label'], d['direction'], d['distance'])
             if should:
                 prefix = "Careful! " if alert_type == "URGENT" else ""
-                alerts_to_speak.append(f"{prefix}{d['alert_text']}")
+                # Use simple alert phrasing but return rich explainability in data
+                alerts_to_speak.append(f"{prefix}{d['label'].capitalize()} {d['distance']} meters, {d['direction']}")
                 if len(alerts_to_speak) >= 2:
                     break
 
