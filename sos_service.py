@@ -7,12 +7,14 @@ Collections used (defined in database.py):
 """
 
 from datetime import datetime, timezone
+import os
+from twilio.rest import Client
 from database import get_db
 
-
-# ---------------------------------------------------------------------------
-# Emergency Contact Management
-# ---------------------------------------------------------------------------
+# Twilio Configuration (Set these in your .env)
+TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 
 async def add_contact(user_id: str, name: str, phone: str) -> dict:
     """
@@ -79,41 +81,40 @@ async def remove_contact(user_id: str, phone: str) -> dict:
     return {"status": "removed" if removed else "not_found", "phone": phone}
 
 
-# ---------------------------------------------------------------------------
-# SOS Trigger
-# ---------------------------------------------------------------------------
+async def send_sms(contacts: list, message: str, lat: float, lng: float):
+    """Sends real SMS alerts to all contacts with a live map link."""
+    if not all([TWILIO_SID, TWILIO_AUTH, TWILIO_NUMBER]):
+        print("[SOS] Warning: Twilio credentials missing in .env. Skipping SMS.")
+        return
+
+    client = Client(TWILIO_SID, TWILIO_AUTH)
+    maps_link = f"https://www.google.com/maps?q={lat},{lng}"
+    full_message = f" {message}\n\nLive Location: {maps_link}"
+
+    for contact in contacts:
+        try:
+            client.messages.create(
+                body=full_message,
+                from_=TWILIO_NUMBER,
+                to=contact["phone"]
+            )
+            print(f"[SOS] SMS sent to {contact['name']} ({contact['phone']})")
+        except Exception as e:
+            print(f"[SOS] Error sending SMS to {contact['phone']}: {str(e)}")
+
 
 async def trigger_sos(
     user_id: str,
     lat: float,
     lng: float,
-    message: str = "SOS triggered via SafeStride AI",
+    message: str = "SOS triggered via SafeStride AI! I need immediate help.",
     call_first: str = None,
 ) -> dict:
-    """
-    Trigger an SOS alert for a user. Logs the event to sos_logs and
-    returns the contacts that were notified.
-
-    Args:
-        user_id:    Unique identifier for the user.
-        lat:        Latitude of the user's location.
-        lng:        Longitude of the user's location.
-        message:    Custom SOS message.
-        call_first: Phone number to prioritise (call first) among contacts.
-
-    Returns:
-        A dict containing the SOS log entry and list of notified contacts.
-    """
     db = get_db()
-
-    # Fetch all registered contacts for this user.
     contacts = await get_contacts(user_id)
-
-    # Sort so that call_first contact appears at the top.
     if call_first:
         contacts = sorted(contacts, key=lambda c: (c["phone"] != call_first))
 
-    # Build the log document.
     sos_log = {
         "user_id": user_id,
         "location": {"lat": lat, "lng": lng},
@@ -127,13 +128,10 @@ async def trigger_sos(
     result = await db.sos_logs.insert_one(sos_log)
     sos_log["_id"] = str(result.inserted_id)
 
-    print(
-        f"[SOS] ALERT triggered for user '{user_id}' at ({lat}, {lng}). "
-        f"Notified {len(contacts)} contact(s)."
-    )
+    print(f"[SOS] ALERT triggered for user '{user_id}' at ({lat}, {lng}).")
 
-    # In a real deployment you would call a Twilio / SMS gateway here.
-    # e.g. await send_sms(contacts, message, lat, lng)
+    # 🔥 SEND REAL SMS
+    await send_sms(contacts, message, lat, lng)
 
     return {
         "status": "triggered",
@@ -144,9 +142,6 @@ async def trigger_sos(
     }
 
 
-# ---------------------------------------------------------------------------
-# SOS History
-# ---------------------------------------------------------------------------
 
 async def get_sos_history(user_id: str, limit: int = 10) -> list:
     """
