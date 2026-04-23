@@ -1,14 +1,13 @@
-# 🛡️ SafeStride AI - Backend
-
-The intelligent "brain" of the SafeStride AI ecosystem. This backend provides real-time hazard detection, explainable AI insights, emergency SOS management, and OCR services for visually impaired users.
+#  SafeStride AI - Backend
+ This backend provides real-time hazard detection, explainable AI insights, emergency SOS management, and OCR services for visually impaired users.
 
 ---
 
 ##  Key Features
 
-*    Explainable Hazard Detection (XAI)**: Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
-*    Smart SOS Service**: Manages emergency contacts, logs SOS events, and supports live GPS location tracking.
-*    OCR Service**: High-accuracy text extraction from signs, books, and labels.
+*    Explainable Hazard Detection (XAI): Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
+*    Smart SOS Service: Manages emergency contacts, logs SOS events, and supports live GPS location tracking.
+*    OCR Service: High-accuracy text extraction from signs, books, and labels.
 
 ---
 
