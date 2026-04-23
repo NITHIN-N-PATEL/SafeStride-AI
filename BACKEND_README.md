@@ -4,9 +4,9 @@ The intelligent "brain" of the SafeStride AI ecosystem. This backend provides re
 
 ---
 
-## Key Features
+##  Key Features
 
-*   **Explainable Hazard Detection (XAI)**: Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
+*   ** Explainable Hazard Detection (XAI)**: Uses YOLOv8m to detect 80+ objects with built-in reasoning (e.g., "I see a car because of the wheels and metal body").
 *   ** Smart SOS Service**: Manages emergency contacts, logs SOS events, and supports live GPS location tracking.
 *   ** OCR Service**: High-accuracy text extraction from signs, books, and labels.
 
@@ -41,7 +41,7 @@ The backend uses the **YOLOv8m** model. The first time you run the app, it will 
 
 ---
 
-## Running the Backend
+##  Running the Backend
 
 Start the server using Python:
 ```bash
@@ -51,7 +51,7 @@ The server will start at `http://localhost:8000`.
 
 ---
 
-##  API Endpoints (Brief)
+## API Endpoints (Brief)
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
@@ -63,7 +63,7 @@ The server will start at `http://localhost:8000`.
 
 ---
 
-## Project Structure
+##  Project Structure
 *   `app.py`: FastAPI routes and server configuration.
 *   `main.py`: AI Detection Service & Explainability logic.
 *   `sos_service.py`: SOS and Contact management logic.
