@@ -157,7 +157,7 @@ async def trigger_sos(
 
     print(f"[SOS] ALERT triggered for user '{user_id}' at ({lat}, {lng}).")
 
-    #  1. SEND REAL SMS to everyone
+    # 1. SEND REAL SMS to everyone
     await send_sms(contacts, message, lat, lng)
 
     #  2. MAKE VOICE CALL to the primary contact
@@ -171,6 +171,7 @@ async def trigger_sos(
         "contacts_notified": contacts,
         "triggered_at": sos_log["triggered_at"].isoformat(),
     }
+
 
 
 async def get_sos_history(user_id: str, limit: int = 10) -> list:
