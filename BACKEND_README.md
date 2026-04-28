@@ -89,7 +89,3 @@ The backend uses a custom-trained YOLOv8 model (`best.pt`) that detects standard
 | Manhole | High | Open or uncovered manholes |
 | Staircase | High | Elevation changes and steps |
 | Road Crack | Medium | Surface fractures on sidewalks |
-
-## License
-
-This project is part of the SafeStride AI ecosystem.
