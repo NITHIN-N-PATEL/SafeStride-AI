@@ -12,3 +12,4 @@ pillow
 numpy
 pydantic
 easyocr
+openrouteservice

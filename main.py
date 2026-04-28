@@ -2,30 +2,26 @@ import cv2
 import numpy as np
 import time
 import base64
+import os
+from pathlib import Path
 from ultralytics import YOLO
-import torch
+from dotenv import load_dotenv
 
-# --- PyTorch 2.6 Workaround ---
-_original_torch_load = torch.load
-def _safe_torch_load(*args, **kwargs):
-    if 'weights_only' not in kwargs:
-        kwargs['weights_only'] = False
-    return _original_torch_load(*args, **kwargs)
-torch.load = _safe_torch_load
+load_dotenv()
 
-MODEL_PATH = "yolov8m.pt"
-CONFIDENCE_THRESHOLD = 0.50 # Lowered slightly to allow explainability for 'uncertain' cases
-FOCAL_LENGTH = 700.0  # Estimated focal length for standard camera
+MODEL_PATH = os.getenv("YOLO_MODEL_PATH", str(Path(__file__).parent / "best.pt"))
+CONFIDENCE_THRESHOLD = 0.50
+FOCAL_LENGTH = 700.0
+MAX_DISPLAY_DISTANCE = 15.0
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  EXPLAINABILITY CONFIGURATION
-# ─────────────────────────────────────────────────────────────────────────────
+
+# Explainability configuration
 
 CONFIDENCE_TIERS = {
     "certain":     (0.85, 1.00, "I am very sure about this"),
     "confident":   (0.70, 0.85, "I am fairly confident about this"),
     "moderate":    (0.55, 0.70, "I think this is correct"),
-    "uncertain":   (0.45, 0.55, "I am not fully sure — please be cautious"),
+    "uncertain":   (0.45, 0.55, "I am not fully sure, please be cautious"),
 }
 
 CLASS_VISUAL_CUES = {
@@ -40,9 +36,14 @@ CLASS_VISUAL_CUES = {
     "dog": "four-legged animal with fur texture and tail",
     "chair": "four legs, seat surface, often with backrest",
     "cell phone": "small rectangular handheld device",
+    # Custom hazard classes
+    "pothole": "dark circular or irregular depression in the road surface",
+    "manhole": "circular metal cover or open hole on the sidewalk",
+    "staircase": "series of horizontal steps with elevation changes",
+    "roadcrack": "visible fracture lines or splits on the road surface",
 }
 
-# Known heights for distance estimation (in meters)
+# Known real-world heights for distance estimation (meters)
 OBJECT_HEIGHTS = {
     "person": 1.7, "bicycle": 1.0, "car": 1.5, "motorcycle": 1.2, "airplane": 30.0,
     "bus": 3.0, "train": 4.0, "truck": 3.0, "boat": 2.0, "traffic light": 2.5,
@@ -60,11 +61,13 @@ OBJECT_HEIGHTS = {
     "mouse": 0.05, "remote": 0.2, "keyboard": 0.15, "cell phone": 0.15,
     "microwave": 0.4, "oven": 0.8, "toaster": 0.3, "sink": 0.9, "refrigerator": 1.8,
     "book": 0.25, "clock": 0.3, "vase": 0.4, "scissors": 0.2, "teddy bear": 0.4,
-    "hair drier": 0.25, "toothbrush": 0.2
+    "hair drier": 0.25, "toothbrush": 0.2,
+    # Custom hazard classes
+    "pothole": 0.15, "manhole": 0.6, "staircase": 2.0, "roadcrack": 0.05,
 }
 DEFAULT_HEIGHT = 1.0
 
-# Criticality weights for priority alerting (1.0 = normal, 3.0 = high danger)
+# Criticality weights for priority alerting
 CRITICALITY = {
     "person": 3.0, "bicycle": 2.5, "car": 3.0, "motorcycle": 3.0, "airplane": 2.0,
     "bus": 3.0, "train": 3.0, "truck": 3.0, "boat": 1.5, "traffic light": 2.5,
@@ -82,7 +85,9 @@ CRITICALITY = {
     "mouse": 0.2, "remote": 0.2, "keyboard": 0.2, "cell phone": 0.5,
     "microwave": 0.8, "oven": 1.2, "toaster": 0.5, "sink": 1.0, "refrigerator": 1.8,
     "book": 0.5, "clock": 0.5, "vase": 0.8, "scissors": 0.5, "teddy bear": 0.5,
-    "hair drier": 0.5, "toothbrush": 0.2
+    "hair drier": 0.5, "toothbrush": 0.2,
+    # Custom hazard classes (high danger for pedestrians)
+    "pothole": 3.0, "manhole": 3.0, "staircase": 3.0, "roadcrack": 2.5,
 }
 DEFAULT_CRITICALITY = 1.0
 
@@ -93,10 +98,22 @@ class AlertManager:
         self.last_alerts = {}  # {label_direction: last_time}
         self.cooldown = 4.5    # Seconds between repeated alerts
         self.urgent_threshold = 1.8 # Distance in meters for urgent override
+        self.cleanup_interval = 60.0  # Purge stale entries older than this
+
+    def _cleanup(self):
+        """Remove entries older than cleanup_interval to prevent memory leaks."""
+        now = time.time()
+        stale_keys = [k for k, t in self.last_alerts.items() if (now - t) > self.cleanup_interval]
+        for k in stale_keys:
+            del self.last_alerts[k]
 
     def should_alert(self, label, direction, distance):
         key = f"{label}_{direction}"
         now = time.time()
+
+        # Periodically clean up stale entries
+        if len(self.last_alerts) > 50:
+            self._cleanup()
         
         # URGENT OVERRIDE: If it's very close, reduce cooldown significantly
         if distance < self.urgent_threshold:
@@ -126,8 +143,8 @@ class DetectionService:
                 return {"tier": tier, "colour": colour, "spoken_phrase": phrase}
         return {"tier": "uncertain", "colour": "#f87171", "spoken_phrase": "Be cautious"}
 
-    def generate_gradcam_heatmap(self, frame, x1, y1, x2, y2):
-        """Generates the visual explainability overlay (simulated Grad-CAM)."""
+    def generate_attention_overlay(self, frame, x1, y1, x2, y2):
+        """Gaussian attention overlay centered on the detection bounding box."""
         h, w = frame.shape[:2]
         heatmap = np.zeros((h, w), dtype=np.float32)
         cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
@@ -139,27 +156,23 @@ class DetectionService:
         
         heatmap = (gaussian * 255).astype(np.uint8)
         coloured = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-        # Use BGR for OpenCV heatmap but RGB for final output
         blended = cv2.addWeighted(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR), 0.6, coloured, 0.4, 0)
         _, buffer = cv2.imencode(".png", blended)
         return base64.b64encode(buffer).decode("utf-8")
 
     def build_reasoning(self, label, conf, direction, distance, bbox_h_px, frame_h):
-        """Constructs explainability logic for the detection."""
+        """Constructs explainability metadata for a detection."""
         tier_info = self.get_confidence_tier(conf)
         visual_cues = CLASS_VISUAL_CUES.get(label, "visual patterns and shape")
         height_ratio = bbox_h_px / frame_h
 
-        # ── Why detection? ──
         detection_reason = f"The model recognised a {label} based on {visual_cues}. {tier_info['spoken_phrase']}."
 
-        # ── Spatial Factors ──
         spatial_factors = [
             {"factor": "Position", "value": direction, "explanation": f"Object is {direction}."},
             {"factor": "Confidence", "value": f"{conf*100:.0f}%", "explanation": f"Tier: {tier_info['tier'].upper()}."}
         ]
 
-        # ── Uncertainty Flags ──
         uncertainty_flags = []
         if conf < 0.60: uncertainty_flags.append("Low confidence — lighting or occlusion might affect accuracy.")
         if height_ratio > 0.7: uncertainty_flags.append("Object is very close — edges may be cropped.")
@@ -182,11 +195,11 @@ class DetectionService:
         return "far right"
 
     def estimate_distance(self, bbox_h_px, label):
-        """Calculates distance in meters using height heuristic."""
+        """Calculates distance in meters using height heuristic. Capped at MAX_DISPLAY_DISTANCE."""
         real_h = OBJECT_HEIGHTS.get(label, DEFAULT_HEIGHT)
-        if bbox_h_px <= 1: return 99.0
+        if bbox_h_px <= 1: return MAX_DISPLAY_DISTANCE
         dist = (real_h * FOCAL_LENGTH) / bbox_h_px
-        return round(dist, 1)
+        return round(min(dist, MAX_DISPLAY_DISTANCE), 1)
 
     def process_frame(self, frame, include_heatmap=False):
         """
@@ -194,7 +207,6 @@ class DetectionService:
         """
         frame_h, frame_w, _ = frame.shape
         
-        # Run YOLOv8m Inference
         results = self.model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)[0]
         
         detections = []
@@ -215,10 +227,9 @@ class DetectionService:
             direction = self.get_direction(cx, frame_w)
             distance = self.estimate_distance(bh, label)
             
-            # --- Generate Explainability Data ---
             explain = self.build_reasoning(label, conf, direction, distance, bh, frame_h)
             
-            proximity = "very close" if distance < 2.0 else "close" if distance < 4.5 else ""
+            proximity = "out of range" if distance >= MAX_DISPLAY_DISTANCE else "very close" if distance < 2.0 else "close" if distance < 4.5 else ""
             
             crit = CRITICALITY.get(label, DEFAULT_CRITICALITY)
             direction_multiplier = 1.3 if direction == "straight ahead" else 1.0
@@ -236,18 +247,17 @@ class DetectionService:
             }
 
             if include_heatmap:
-                det_data["heatmap_b64"] = self.generate_gradcam_heatmap(frame, x1, y1, x2, y2)
+                det_data["heatmap_b64"] = self.generate_attention_overlay(frame, x1, y1, x2, y2)
+                det_data["xai_method"] = "gaussian_proxy"
 
             detections.append(det_data)
 
-        # Sort by Danger Score
         detections.sort(key=lambda d: d['danger_score'], reverse=True)
         
         for d in detections:
             should, alert_type = self.alert_manager.should_alert(d['label'], d['direction'], d['distance'])
             if should:
                 prefix = "Careful! " if alert_type == "URGENT" else ""
-                # Use simple alert phrasing but return rich explainability in data
                 alerts_to_speak.append(f"{prefix}{d['label'].capitalize()} {d['distance']} meters, {d['direction']}")
                 if len(alerts_to_speak) >= 2:
                     break

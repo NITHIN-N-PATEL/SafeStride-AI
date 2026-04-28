@@ -1,77 +1,95 @@
-# SafeStride AI Backend Guide
+# SafeStride AI — Backend
 
-Welcome to the SafeStride AI Backend documentation! This project follows a modular architecture to separate the API orchestration from the core AI processing engines.
+Backend server for the SafeStride AI mobile application. Provides real-time hazard detection, pedestrian navigation, OCR text extraction, and SOS emergency services for visually impaired users.
 
-## 📂 Modular Architecture
+Built with FastAPI, YOLOv8, EasyOCR, OpenRouteService, Twilio, and MongoDB.
 
-The backend is split into three main components:
+## Features
 
-1.  **`app.py` (The Orchestrator):**
-    *   This is the **Main Entry Point**.
-    *   It handles the FastAPI server, CORS configuration, and API routing.
-    *   It manages the HTTP requests and delegates the actual processing to the specialized services.
+- **Hazard Detection** — Custom-trained YOLOv8 model detecting 80+ COCO objects plus 4 ground-level hazards (pothole, manhole, staircase, road crack). Includes distance estimation, directional awareness, and explainability overlays.
+- **Pedestrian Navigation** — Walking-optimized turn-by-turn directions via OpenRouteService. Supports both voice-based destination search and direct coordinate input (hybrid mode for Google Places integration).
+- **OCR Text Reader** — Multi-language text extraction using EasyOCR. Supports English, Hindi, Tamil, Telugu, Kannada, Bengali, Marathi, and Nepali. Confidence-filtered to reduce noise.
+- **SOS Emergency System** — One-tap emergency alerts via Twilio SMS and automated voice calls. Includes contact management, live location tracking, SOS deduplication, and session resolution.
 
-2.  **`main.py` (Detection Service):**
-    *   Encapsulates all **Object Detection** logic.
-    *   Loads the YOLOv8 model and handles coordinate calculations, distance estimation, and danger scoring.
-    *   **Tweaking Logic:** Modify `OBJECT_HEIGHTS` or `CRITICALITY` in this file to adjust how objects are detected and prioritized.
+## Requirements
 
-3.  **`ocr_engine.py` (OCR Service):**
-    *   Handles **Optical Character Recognition** using EasyOCR.
-    *   Initialized separately to keep the heavy OCR models isolated from the detection pipeline.
+- Python 3.10+
+- MongoDB (local or Atlas)
+- Twilio account (for SMS/voice — optional in dev)
+- OpenRouteService API key (for navigation)
 
----
-
-## 🚀 Quick Start
-
-### 1. Prerequisites
-- Python 3.9 - 3.12
-- A working webcam (for testing)
-
-### 2. Installation
-Open your terminal in the root directory and run:
+## Setup
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
-```
 
-*(Note: PyTorch will be installed automatically. For GPU acceleration, visit [pytorch.org](https://pytorch.org/) to install the CUDA version).*
+# Configure environment
+cp .env.example .env
+# Edit .env with your credentials
 
-### 3. Running the Server
-
-**Always run `app.py` to start the backend:**
-
-```bash
+# Start the server
 python app.py
 ```
 
-The server will start at `http://0.0.0.0:8000`.
+The server starts at `http://localhost:8000`. Interactive API docs are available at `/docs`.
 
----
+## Environment Variables
 
-## 📡 API Endpoints
+| Variable | Required | Description |
+|---|---|---|
+| `MONGO_URI` | Yes | MongoDB connection string |
+| `ORS_API_KEY` | Yes | OpenRouteService API key |
+| `TWILIO_ACCOUNT_SID` | No | Twilio account SID (SMS/voice) |
+| `TWILIO_AUTH_TOKEN` | No | Twilio auth token |
+| `TWILIO_PHONE_NUMBER` | No | Twilio sender number |
+| `SAFESTRIDE_API_KEY` | No | API key for endpoint auth (empty = dev mode) |
+| `YOLO_MODEL_PATH` | No | Path to YOLO model (default: `best.pt`) |
 
-### 1. Object Detection (`POST /detect`)
-*Consumes a frame and returns a list of detected objects.*
-- **Input:** Multipart form data with a `file` field (JPEG/PNG).
-- **Processing (via `main.py`):** 
-  - Runs YOLOv8m Inference.
-  - Heuristic-based distance estimation.
-  - Priority alerting via "Danger Scores".
-- **Output:** JSON containing `results`, `width`, and `height`.
+## API Endpoints
 
-### 2. Optical Character Recognition (`POST /ocr`)
-*Consumes an image and returns extracted text.*
-- **Input:** Multipart form data with a `file` field. Optional: `flip=true` for mirrored webcams.
-- **Processing (via `ocr_engine.py`):** 
-  - Image normalization and EXIF handling.
-  - EasyOCR text extraction.
-- **Output:** JSON containing `text` and `char_count`.
+| Endpoint | Method | Description |
+|---|---|---|
+| `/` | GET | Health check |
+| `/detect` | POST | Upload image for hazard detection |
+| `/detect?heatmap=true` | POST | Detection with explainability overlay |
+| `/ocr` | POST | Upload image for text extraction |
+| `/ocr?language=hi` | POST | OCR with regional language |
+| `/navigation/navigate` | POST | Get walking directions |
+| `/sos/trigger` | POST | Trigger emergency SOS |
+| `/sos/resolve` | POST | Resolve active SOS |
+| `/sos/location` | POST | Send live location update |
+| `/sos/history/{user_id}` | GET | Fetch SOS event history |
+| `/sos/contacts/add` | POST | Add emergency contact |
+| `/sos/contacts/remove` | POST | Remove emergency contact |
+| `/sos/contacts/{user_id}` | GET | List emergency contacts |
 
----
+## Project Structure
 
-## 🛠 Backend Developer Tips
-- **Performance:** If the detection is slow on your CPU, change the model in `main.py` from `yolov8m.pt` to `yolov8n.pt` (Nano).
-- **Thresholds:** Adjust `CONFIDENCE_THRESHOLD` in `main.py` to filter out low-confidence detections.
-- **Mirroring:** The backend provides a `flip` parameter for OCR, but for detection, coordinate mirroring is handled by the **Frontend** based on the user's camera type.
+```
+├── app.py              # FastAPI server, routes, middleware
+├── main.py             # Detection engine (YOLOv8 + XAI)
+├── ocr_engine.py       # OCR service (EasyOCR, multi-language)
+├── navigation.py       # Pedestrian navigation (OpenRouteService)
+├── sos_service.py      # SOS alerts, contacts, Twilio integration
+├── database.py         # MongoDB connection and indexing
+├── best.pt             # Custom-trained YOLO model (gitignored)
+├── requirements.txt    # Python dependencies
+├── .env.example        # Environment variable template
+└── .gitignore          # Git exclusions
+```
+
+## Detection Model
+
+The backend uses a custom-trained YOLOv8 model (`best.pt`) that detects standard COCO objects along with 4 additional hazard classes relevant to pedestrian safety:
+
+| Hazard | Criticality | Description |
+|---|---|---|
+| Pothole | High | Ground depressions in walking paths |
+| Manhole | High | Open or uncovered manholes |
+| Staircase | High | Elevation changes and steps |
+| Road Crack | Medium | Surface fractures on sidewalks |
+
+## License
+
+This project is part of the SafeStride AI ecosystem.
