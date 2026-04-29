@@ -189,6 +189,81 @@ async def list_emergency_contacts(user_id: str):
     return {"user_id": user_id, "contacts": contacts}
 
 
+# ─── Device Telemetry Endpoints ───────────────────────────────────────────────
+# These match the payloads sent by the Flutter DeviceStatusService.
+
+class DeviceStatusPayload(BaseModel):
+    user_id: str
+    timestamp: str = None
+    device_status: dict
+    location: dict = None
+
+class BatteryEventPayload(BaseModel):
+    user_id: str
+    timestamp: str = None
+    battery_event: dict
+
+class FlashlightEventPayload(BaseModel):
+    user_id: str
+    timestamp: str = None
+    flashlight_event: dict
+
+
+@app.post("/device-status", dependencies=[Depends(verify_api_key)])
+async def log_device_status(payload: DeviceStatusPayload):
+    """Log device status (battery, flashlight, location) from the mobile app."""
+    try:
+        from database import get_db
+        db = get_db()
+        doc = payload.dict()
+        doc["received_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        await db.device_status.insert_one(doc)
+        return {"status": "ok", "message": "Device status logged"}
+    except RuntimeError:
+        # DB not connected — accept silently so the app doesn't break
+        print("[DeviceStatus] DB unavailable, status not persisted")
+        return {"status": "ok", "message": "Acknowledged (DB offline)"}
+    except Exception as e:
+        print(f"[DeviceStatus] Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/battery-event", dependencies=[Depends(verify_api_key)])
+async def log_battery_event(payload: BatteryEventPayload):
+    """Log battery level change events for trend analysis."""
+    try:
+        from database import get_db
+        db = get_db()
+        doc = payload.dict()
+        doc["received_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        await db.battery_logs.insert_one(doc)
+        return {"status": "ok", "message": "Battery event logged"}
+    except RuntimeError:
+        print("[BatteryEvent] DB unavailable, event not persisted")
+        return {"status": "ok", "message": "Acknowledged (DB offline)"}
+    except Exception as e:
+        print(f"[BatteryEvent] Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/flashlight-event", dependencies=[Depends(verify_api_key)])
+async def log_flashlight_event(payload: FlashlightEventPayload):
+    """Log flashlight toggle events (auto/manual)."""
+    try:
+        from database import get_db
+        db = get_db()
+        doc = payload.dict()
+        doc["received_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        await db.flashlight_logs.insert_one(doc)
+        return {"status": "ok", "message": "Flashlight event logged"}
+    except RuntimeError:
+        print("[FlashlightEvent] DB unavailable, event not persisted")
+        return {"status": "ok", "message": "Acknowledged (DB offline)"}
+    except Exception as e:
+        print(f"[FlashlightEvent] Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
