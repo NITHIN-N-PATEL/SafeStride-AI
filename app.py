@@ -90,7 +90,7 @@ def health():
 
 
 @app.post("/detect", dependencies=[Depends(verify_api_key)])
-async def detect(file: UploadFile = File(...), heatmap: bool = Query(False)):
+async def detect(file: UploadFile = File(...), heatmap: bool = Query(False), language: str = Query("en")):
     """Run hazard detection on an uploaded image."""
     try:
         contents = await file.read()
@@ -103,7 +103,7 @@ async def detect(file: UploadFile = File(...), heatmap: bool = Query(False)):
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         image = ImageOps.exif_transpose(image)
         frame = np.array(image)
-        return detection_service.process_frame(frame, include_heatmap=heatmap)
+        return detection_service.process_frame(frame, include_heatmap=heatmap, language=language)
     
     except Exception as e:
         print(f"[Detection] Error: {e}")

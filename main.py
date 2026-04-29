@@ -93,6 +93,50 @@ DEFAULT_CRITICALITY = 1.0
 
 EXCLUDED_OBJECTS = set()
 
+# Localization dictionary for supported languages
+TRANSLATIONS = {
+    "en": {
+        "directions": {
+            "far left": "far left",
+            "slightly left": "slightly left",
+            "straight ahead": "straight ahead",
+            "slightly right": "slightly right",
+            "far right": "far right"
+        },
+        "units": {"meters": "meters"},
+        "labels": {
+            "person": "person", "bicycle": "bicycle", "car": "car", "motorcycle": "motorcycle",
+            "bus": "bus", "truck": "truck", "traffic light": "traffic light", "stop sign": "stop sign",
+            "dog": "dog", "chair": "chair", "cell phone": "cell phone", "pothole": "pothole",
+            "manhole": "manhole", "staircase": "staircase", "roadcrack": "road crack"
+        },
+        "phrases": {
+            "careful": "Careful!",
+            "distance_at": "at"
+        }
+    },
+    "kn": {
+        "directions": {
+            "far left": "ತೀರಾ ಎಡಕ್ಕೆ",
+            "slightly left": "ಸ್ವಲ್ಪ ಎಡಕ್ಕೆ",
+            "straight ahead": "ನೇರವಾಗಿ ಮುಂದೆ",
+            "slightly right": "ಸ್ವಲ್ಪ ಬಲಕ್ಕೆ",
+            "far right": "ತೀರಾ ಬಲಕ್ಕೆ"
+        },
+        "units": {"meters": "ಮೀಟರ್"},
+        "labels": {
+            "person": "ವ್ಯಕ್ತಿ", "bicycle": "ಸೈಕಲ್", "car": "ಕಾರು", "motorcycle": "ಮೋಟಾರ್ ಸೈಕಲ್",
+            "bus": "ಬಸ್", "truck": "ಟ್ರಕ್", "traffic light": "ಟ್ರಾಫಿಕ್ ಸಿಗ್ನಲ್", "stop sign": "ಸ್ಟಾಪ್ ಸೈನ್",
+            "dog": "ನಾಯಿ", "chair": "ಕುರ್ಚಿ", "cell phone": "ಮೊಬೈಲ್", "pothole": "ಗುಂಡಿ",
+            "manhole": "ಮ್ಯಾನ್ ಹೋಲ್", "staircase": "ಮೆಟ್ಟಿಲುಗಳು", "roadcrack": "ರಸ್ತೆ ಬಿರುಕು"
+        },
+        "phrases": {
+            "careful": "ಜಾಗ್ರತೆ!",
+            "distance_at": "ದೂರದಲ್ಲಿ"
+        }
+    }
+}
+
 class AlertManager:
     def __init__(self):
         self.last_alerts = {}  # {label_direction: last_time}
@@ -160,7 +204,20 @@ class DetectionService:
         _, buffer = cv2.imencode(".png", blended)
         return base64.b64encode(buffer).decode("utf-8")
 
-    def build_reasoning(self, label, conf, direction, distance, bbox_h_px, frame_h):
+    def get_translated_alert(self, label, distance, direction, lang="en"):
+        """Generates a localized alert string."""
+        t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+        
+        # Fallback to English label if translation missing
+        label_t = t["labels"].get(label, label)
+        dir_t = t["directions"].get(direction, direction)
+        unit_t = t["units"]["meters"]
+        
+        if lang == "kn":
+            return f"{dir_t} {distance} {unit_t} ದೂರದಲ್ಲಿ {label_t} ಇದೆ"
+        return f"{label_t.capitalize()} {distance} {unit_t}, {dir_t}"
+
+    def build_reasoning(self, label, conf, direction, distance, bbox_h_px, frame_h, lang="en"):
         """Constructs explainability metadata for a detection."""
         tier_info = self.get_confidence_tier(conf)
         visual_cues = CLASS_VISUAL_CUES.get(label, "visual patterns and shape")
@@ -201,7 +258,7 @@ class DetectionService:
         dist = (real_h * FOCAL_LENGTH) / bbox_h_px
         return round(min(dist, MAX_DISPLAY_DISTANCE), 1)
 
-    def process_frame(self, frame, include_heatmap=False):
+    def process_frame(self, frame, include_heatmap=False, language="en"):
         """
         Processes a single frame (numpy array) and returns detection results with explainability.
         """
@@ -227,7 +284,7 @@ class DetectionService:
             direction = self.get_direction(cx, frame_w)
             distance = self.estimate_distance(bh, label)
             
-            explain = self.build_reasoning(label, conf, direction, distance, bh, frame_h)
+            explain = self.build_reasoning(label, conf, direction, distance, bh, frame_h, lang=language)
             
             proximity = "out of range" if distance >= MAX_DISPLAY_DISTANCE else "very close" if distance < 2.0 else "close" if distance < 4.5 else ""
             
@@ -235,6 +292,8 @@ class DetectionService:
             direction_multiplier = 1.3 if direction == "straight ahead" else 1.0
             danger_score = (crit * direction_multiplier) / max(distance, 0.5)
             
+            alert_text = self.get_translated_alert(label, distance, direction, lang=language)
+
             det_data = {
                 "label": label,
                 "confidence": round(conf, 3),
@@ -242,6 +301,7 @@ class DetectionService:
                 "distance": distance,
                 "proximity": proximity,
                 "danger_score": round(danger_score, 2),
+                "alert_text": alert_text,
                 "explainability": explain,
                 "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
             }
@@ -257,8 +317,13 @@ class DetectionService:
         for d in detections:
             should, alert_type = self.alert_manager.should_alert(d['label'], d['direction'], d['distance'])
             if should:
-                prefix = "Careful! " if alert_type == "URGENT" else ""
-                alerts_to_speak.append(f"{prefix}{d['label'].capitalize()} {d['distance']} meters, {d['direction']}")
+                prefix = ""
+                if language == "kn":
+                    prefix = "ಜಾಗ್ರತೆ! " if alert_type == "URGENT" else ""
+                else:
+                    prefix = "Careful! " if alert_type == "URGENT" else ""
+                
+                alerts_to_speak.append(f"{prefix}{d['alert_text']}")
                 if len(alerts_to_speak) >= 2:
                     break
 
