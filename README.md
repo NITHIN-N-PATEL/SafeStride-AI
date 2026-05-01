@@ -19,8 +19,7 @@
 - 🎙️ **Voice-first interface** with bilingual support
 - ✋ **Intuitive gesture controls** (no visual UI needed)
 - 📱 **Smartphone-based** (no expensive hardware required)
-- 🔦 **Auto-flashlight** for dark environments
-- 🆘 **SOS emergency** system with vibration
+
 
 > **"Empowering independence through AI"**
 
