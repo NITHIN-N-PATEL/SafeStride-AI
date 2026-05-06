@@ -10,7 +10,7 @@ Provide distance estimation within ±1 meter
 Deliver clear voice alerts for detected objects
 
 **Achievable**
-Use lightweight models such as YOLO and MobileNet to ensure real-time performance on mobile devices without requiring high-end hardware.
+Use lightweight models such as YOLO to ensure real-time performance on mobile devices without requiring high-end hardware.
 
 **Relevant**
 Addresses real-world navigation challenges faced by visually impaired individuals, improving safety, accessibility, and independence.
