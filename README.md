@@ -97,19 +97,19 @@ https://drive.google.com/file/d/12nXlg5Lchd4kJht1HJMkEp3eiNe9P8tt/view?usp=drive
 
 **Team Roles**
 Names	                      Roles
-Snehal B Rai	    |   ML Engineer-Model Development|
-Kashish           |  	ML Engineer-ML Engineer|
-Chandu Shree S	  |   ML Engineer- Data Engineer
-Dikshitha Ramesh  |   Frontend Developer|
-Lasya T P         |  	Backend Developer|
-Nithin N Pate     |   Research and App Developer|
-Tejas V           |	  Backend Developer|
-Savari Yevoor     |   Integration Developer|
-Pooja	            |   Integration Developer|
-Narayan M Nayak   |  	Mobile App Developer|
-B V Vedamurthi	  |   Mobile App Developer|
-Priyaguna	        |   Testing-QA Tester|
-Tamirah Sharieff 	|   Testing-User Testing and Accessibility|
-Ammar Shibli	    |   Reasearch Analyst|
-Manisha M S     	|   Documentation and Frontend Developer|
+Snehal B Rai	    |   ML Engineer-Model Development            |
+Kashish           |  	ML Engineer-ML Engineer                  |
+Chandu Shree S	  |   ML Engineer- Data Engineer and Researcher|
+Dikshitha Ramesh  |   Frontend Developer                       |
+Lasya T P         |  	Backend Developer                        |
+Nithin N Pate     |   Research and App Developer               |
+Tejas V           |	  Backend Developer                        |
+Savari Yevoor     |   Integration Developer                    |
+Pooja	            |   Integration Developer                    |
+Narayan M Nayak   |  	Mobile App Developer                     |
+B V Vedamurthi	  |   Mobile App Developer                     |
+Priyaguna	        |   Testing-QA Tester                        |
+Tamirah Sharieff 	|   Testing-User Testing and Accessibility   |
+Ammar Shibli	    |   Reasearch Analyst                        |
+Manisha M S     	|   Documentation and Frontend Developer     |
 
